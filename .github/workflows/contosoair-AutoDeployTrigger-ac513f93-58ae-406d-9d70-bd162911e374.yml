@@ -1,0 +1,62 @@
+name: Trigger auto deployment for containerapp contosoair
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/contosoair-AutoDeployTrigger-ac513f93-58ae-406d-9d70-bd162911e374.yml'
+
+  # Allow mannually trigger 
+  workflow_dispatch:      
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Log in to container registry
+        uses: docker/login-action@v1
+        with:
+          registry: ca392411dc7facr.azurecr.io
+          username: ${{ secrets.CONTOSOAIR_REGISTRY_USERNAME }}
+          password: ${{ secrets.CONTOSOAIR_REGISTRY_PASSWORD }}
+
+      - name: Build and push container image to registry
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          tags: ca392411dc7facr.azurecr.io/contosoair:${{ github.sha }}
+          file: ./Dockerfile
+          context: ./
+
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.CONTOSOAIR_AZURE_CREDENTIALS }}
+
+
+      - name: Deploy to containerapp
+        uses: azure/CLI@v1
+        with:
+          inlineScript: |
+            echo "Installing containerapp extension"
+            az config set extension.use_dynamic_install=yes_without_prompt
+            echo "Starting Deploying"
+            az containerapp registry set -n contosoair -g scott_rg_4234 --server ca392411dc7facr.azurecr.io --username  ${{ secrets.CONTOSOAIR_REGISTRY_USERNAME }} --password ${{ secrets.CONTOSOAIR_REGISTRY_PASSWORD }}
+            az containerapp update -n contosoair -g scott_rg_4234 --image ca392411dc7facr.azurecr.io/contosoair:${{ github.sha }}
